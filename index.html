@@ -18,7 +18,7 @@
 
   <!-- ====== CONFIG: paste your Apps Script Web App URL between the quotes ====== -->
   <script>
-    const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxfxCriGwv48KC0SQuCzgCJOlykpRRtfHkhkjcuVy_DLJ5qIaMyJaQNK8sbZKnofrsc/exec";
+    const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwczxkXUvHt91o4rJNDedLUKmMq1cbhnhaH3_b8Lxab3kZpXZp_mppYghGCS3OYA1Sx/exec";
   </script>
   <!-- ========================================================================== -->
 
@@ -69,6 +69,7 @@
         <label class="block text-sm font-semibold brand-dark mb-2">Date</label>
         <input id="orderDate" type="date"
           class="w-full rounded-lg border border-stone-300 px-3 py-2.5 text-base ring-brand" />
+        <p id="periodHint" class="mt-1.5 text-[11px] text-stone-500"></p>
       </div>
 
       <!-- Products -->
@@ -155,6 +156,34 @@
   }
 
   function ksh(n) { return "KSh " + (Number(n) || 0).toLocaleString("en-KE"); }
+
+  // the dairy month runs 25th to 24th
+  function periodFor(dateStr) {
+    const p = String(dateStr).slice(0, 10).split("-");
+    let y = Number(p[0]);
+    let m = Number(p[1]);
+    const day = Number(p[2]);
+    if (day >= 25) { m += 1; if (m > 12) { m = 1; y += 1; } }
+    return y + "-" + ("0" + m).slice(-2);
+  }
+
+  function periodLabel(month) {
+    const p = String(month).split("-");
+    const y = Number(p[0]); const m = Number(p[1]);
+    let sy = y, sm = m - 1;
+    if (sm < 1) { sm = 12; sy = y - 1; }
+    const names = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    return "25 " + names[sm - 1] + " " + sy + " to 24 " + names[m - 1] + " " + y;
+  }
+
+  function updatePeriodHint() {
+    const d = document.getElementById("orderDate").value || todayLocal();
+    const m = periodFor(d);
+    const el = document.getElementById("periodHint");
+    if (el) el.textContent = "Goes into the " + m + " sheet (" + periodLabel(m) + ")";
+    const btn = document.getElementById("refreshSummaryBtn");
+    if (btn) btn.textContent = "Refresh summary for " + m;
+  }
 
   async function apiGet(params) {
     const url = APPS_SCRIPT_URL + (params ? "?" + params : "");
@@ -504,6 +533,7 @@
 
   async function boot() {
     document.getElementById("orderDate").value = todayLocal();
+    updatePeriodHint();
     renderPayments();
     try {
       const data = await apiGet("action=bootstrap");
@@ -521,6 +551,7 @@
   function bootDemo() {
     demoMode = true;
     document.getElementById("orderDate").value = todayLocal();
+    updatePeriodHint();
     renderPayments();
     customers = DEMO_CUSTOMERS.slice();
     products = DEMO_PRODUCTS.slice();
@@ -537,6 +568,7 @@
     renderCustomerResults(e.target.value);
   });
   document.getElementById("clearCustomer").addEventListener("click", clearCustomer);
+  document.getElementById("orderDate").addEventListener("change", updatePeriodHint);
   document.getElementById("orderForm").addEventListener("submit", submitOrder);
 
   document.getElementById("refreshSummaryBtn").addEventListener("click", async function () {
@@ -546,18 +578,18 @@
     if (demoMode) {
       banner("Preview mode: connect the spreadsheet first.", "error");
       btn.disabled = false;
-      btn.textContent = "Refresh this month's summary";
+      updatePeriodHint();
       return;
     }
     try {
-      const month = (document.getElementById("orderDate").value || todayLocal()).slice(0, 7);
+      const month = periodFor(document.getElementById("orderDate").value || todayLocal());
       const res = await apiPost({ action: "refreshSummary", month: month });
       banner(res.message || "Summary refreshed.");
     } catch (ex) {
       banner("Could not refresh: " + ex.message, "error");
     } finally {
       btn.disabled = false;
-      btn.textContent = "Refresh this month's summary";
+      updatePeriodHint();
     }
   });
 
