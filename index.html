@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+ <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
@@ -194,17 +194,31 @@
     return json;
   }
 
-  async function apiPost(payload) {
-    const res = await fetch(APPS_SCRIPT_URL, {
-      method: "POST",
-      redirect: "follow",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify(payload)
-    });
-    if (!res.ok) throw new Error("HTTP " + res.status);
-    const json = await res.json();
-    if (json && json.ok === false) throw new Error(json.error || "unknown");
-    return json;
+  async function apiPost(payload, attempts) {
+    // Retries are safe: every order carries a stable orderId and the server
+    // ignores ids it has already stored, so a repeat never double-writes.
+    const maxAttempts = attempts || 3;
+    let lastErr;
+    for (let i = 0; i < maxAttempts; i++) {
+      try {
+        const res = await fetch(APPS_SCRIPT_URL, {
+          method: "POST",
+          redirect: "follow",
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const json = await res.json();
+        if (json && json.ok === false) throw new Error(json.error || "unknown");
+        return json;
+      } catch (ex) {
+        lastErr = ex;
+        if (i < maxAttempts - 1) {
+          await new Promise(function (r) { setTimeout(r, 1200 * (i + 1)); });
+        }
+      }
+    }
+    throw lastErr;
   }
 
   /* ---------- customer search ---------- */
@@ -468,12 +482,16 @@
     btn.disabled = true;
     btn.textContent = "Saving...";
     try {
-      await apiPost({ action: "createOrders", orders: orders });
+      const result = await apiPost({ action: "createOrders", orders: orders });
       if (isNew && customers.indexOf(customerName) === -1) customers.push(customerName);
       orders.forEach(function (o) { savedThisSession.unshift(o); });
       renderRecent();
-      banner("Saved " + lineCount + (lineCount === 1 ? " item" : " items") +
-             " for " + customerName + ", total " + ksh(grandTotal));
+      if (result && result.saved === 0 && result.skipped > 0) {
+        banner("Already saved earlier, no duplicate created for " + customerName + ".");
+      } else {
+        banner("Saved " + lineCount + (lineCount === 1 ? " item" : " items") +
+               " for " + customerName + ", total " + ksh(grandTotal));
+      }
       resetForm();
     } catch (ex) {
       show("Could not save: " + ex.message);
@@ -530,21 +548,62 @@
   ];
 
   let demoMode = false;
+  const CACHE_KEY = "olchaketai_bootstrap_v1";
+
+  function showForm() {
+    document.getElementById("loadingBox").classList.add("hidden");
+    document.getElementById("orderForm").classList.remove("hidden");
+  }
+
+  function readCache() {
+    try {
+      const raw = localStorage.getItem(CACHE_KEY);
+      if (!raw) return null;
+      const obj = JSON.parse(raw);
+      if (!obj || !obj.products || !obj.products.length) return null;
+      return obj;
+    } catch (ex) { return null; }
+  }
+
+  function writeCache(data) {
+    try {
+      localStorage.setItem(CACHE_KEY, JSON.stringify({
+        customers: data.customers || [],
+        products: data.products || [],
+        at: Date.now()
+      }));
+    } catch (ex) { /* storage full or blocked, ignore */ }
+  }
 
   async function boot() {
     document.getElementById("orderDate").value = todayLocal();
     updatePeriodHint();
     renderPayments();
+
+    // 1) show instantly from cache if we have it
+    const cached = readCache();
+    if (cached) {
+      customers = cached.customers;
+      products = cached.products;
+      renderProducts();
+      showForm();
+    }
+
+    // 2) always refresh from the sheet; update quietly when it arrives
     try {
       const data = await apiGet("action=bootstrap");
       customers = data.customers || [];
       products = data.products || [];
+      writeCache(data);
       renderProducts();
-      document.getElementById("loadingBox").classList.add("hidden");
-      document.getElementById("orderForm").classList.remove("hidden");
+      showForm();
     } catch (ex) {
-      document.getElementById("loadingBox").textContent =
-        "Could not load data: " + ex.message;
+      if (!cached) {
+        document.getElementById("loadingBox").textContent =
+          "Could not load data: " + ex.message +
+          ". Check your connection and reload.";
+      }
+      // if we had a cache, the user keeps working offline; nothing to show
     }
   }
 
