@@ -1,4 +1,5 @@
- <!DOCTYPE html>
+
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
@@ -446,10 +447,13 @@
     if (!selectedPayment) return show("Choose a payment method.");
 
     const comments = document.getElementById("comments").value.trim();
+    let idCounter = 0;
     const newId = function () {
-      return (window.crypto && crypto.randomUUID)
-        ? crypto.randomUUID()
-        : String(Date.now()) + Math.random().toString(16).slice(2);
+      idCounter += 1;
+      if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+      // fallback: time + random + a per-basket counter so lines never collide
+      return String(Date.now()) + "-" + idCounter + "-" +
+             Math.random().toString(16).slice(2);
     };
 
     const orders = basket.map(function (line) {
