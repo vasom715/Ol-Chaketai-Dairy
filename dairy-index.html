@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -17,11 +16,12 @@
 </head>
 <body class="min-h-screen">
 
-  <!-- ====== CONFIG: paste your Apps Script Web App URL between the quotes ====== -->
+  <!-- ====== CONFIG ====== -->
   <script>
-    const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwczxkXUvHt91o4rJNDedLUKmMq1cbhnhaH3_b8Lxab3kZpXZp_mppYghGCS3OYA1Sx/exec";
+    // Fast Railway server, used for loading data and saving orders.
+    const API_BASE = "PASTE_YOUR_RAILWAY_URL_HERE";
   </script>
-  <!-- ========================================================================== -->
+  <!-- ===================== -->
 
   <div class="mx-auto max-w-lg px-4 py-6">
 
@@ -35,7 +35,7 @@
 
     <div id="configWarning" class="hidden mb-4 rounded-lg border border-amber-500 bg-amber-50 px-4 py-3 text-sm text-amber-900">
       <strong>Preview mode.</strong> Showing sample customers and products so you can
-      try the form. Nothing is saved. Paste your Google Apps Script URL at the top of
+      try the form. Nothing is saved. Paste your Railway server URL (API_BASE) at the top of
       this file to connect it to the real spreadsheet.
     </div>
 
@@ -117,14 +117,6 @@
       <h2 class="text-sm font-semibold brand-dark mb-2">Saved this session</h2>
       <div id="recentList" class="space-y-1.5"></div>
     </div>
-
-    <div class="mt-8 border-t border-stone-300 pt-4 text-center">
-      <button id="refreshSummaryBtn"
-        class="rounded-lg border border-stone-400 bg-white px-4 py-2 text-sm brand-dark hover:bg-stone-50">
-        Refresh this month's summary
-      </button>
-      <p class="mt-2 text-[11px] text-stone-500">Rebuilds the summary tab in the spreadsheet.</p>
-    </div>
   </div>
 
 <script>
@@ -182,30 +174,34 @@
     const m = periodFor(d);
     const el = document.getElementById("periodHint");
     if (el) el.textContent = "Goes into the " + m + " sheet (" + periodLabel(m) + ")";
-    const btn = document.getElementById("refreshSummaryBtn");
-    if (btn) btn.textContent = "Refresh summary for " + m;
   }
 
-  async function apiGet(params) {
-    const url = APPS_SCRIPT_URL + (params ? "?" + params : "");
-    const res = await fetch(url, { method: "GET", redirect: "follow" });
+  function cleanBase(u) {
+    return String(u || "").replace(/\/+$/, "");
+  }
+
+  // Load customers + products from the fast server.
+  async function apiGet() {
+    const res = await fetch(cleanBase(API_BASE) + "/bootstrap", {
+      method: "GET",
+    });
     if (!res.ok) throw new Error("HTTP " + res.status);
     const json = await res.json();
     if (json && json.ok === false) throw new Error(json.error || "unknown");
     return json;
   }
 
+  // Save orders through the fast server. Retries are safe: every order carries a
+  // stable orderId and the server ignores ids it has already stored, so a repeat
+  // never double-writes.
   async function apiPost(payload, attempts) {
-    // Retries are safe: every order carries a stable orderId and the server
-    // ignores ids it has already stored, so a repeat never double-writes.
     const maxAttempts = attempts || 3;
     let lastErr;
     for (let i = 0; i < maxAttempts; i++) {
       try {
-        const res = await fetch(APPS_SCRIPT_URL, {
+        const res = await fetch(cleanBase(API_BASE) + "/", {
           method: "POST",
-          redirect: "follow",
-          headers: { "Content-Type": "text/plain;charset=utf-8" },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload)
         });
         if (!res.ok) throw new Error("HTTP " + res.status);
@@ -215,13 +211,15 @@
       } catch (ex) {
         lastErr = ex;
         if (i < maxAttempts - 1) {
-          await new Promise(function (r) { setTimeout(r, 1200 * (i + 1)); });
+          await new Promise(function (r) { setTimeout(r, 1000 * (i + 1)); });
         }
       }
     }
     throw lastErr;
   }
 
+  // The summary rebuild still runs in Apps Script (heavy formatting). Only the
+  // "Refresh summary" button uses this.
   /* ---------- customer search ---------- */
 
   function renderCustomerResults(query) {
@@ -595,7 +593,7 @@
 
     // 2) always refresh from the sheet; update quietly when it arrives
     try {
-      const data = await apiGet("action=bootstrap");
+      const data = await apiGet();
       customers = data.customers || [];
       products = data.products || [];
       writeCache(data);
@@ -634,29 +632,7 @@
   document.getElementById("orderDate").addEventListener("change", updatePeriodHint);
   document.getElementById("orderForm").addEventListener("submit", submitOrder);
 
-  document.getElementById("refreshSummaryBtn").addEventListener("click", async function () {
-    const btn = this;
-    btn.disabled = true;
-    btn.textContent = "Refreshing...";
-    if (demoMode) {
-      banner("Preview mode: connect the spreadsheet first.", "error");
-      btn.disabled = false;
-      updatePeriodHint();
-      return;
-    }
-    try {
-      const month = periodFor(document.getElementById("orderDate").value || todayLocal());
-      const res = await apiPost({ action: "refreshSummary", month: month });
-      banner(res.message || "Summary refreshed.");
-    } catch (ex) {
-      banner("Could not refresh: " + ex.message, "error");
-    } finally {
-      btn.disabled = false;
-      updatePeriodHint();
-    }
-  });
-
-  if (APPS_SCRIPT_URL.indexOf("PASTE_YOUR") !== -1) {
+  if (API_BASE.indexOf("PASTE_YOUR") !== -1) {
     document.getElementById("configWarning").classList.remove("hidden");
     bootDemo();
   } else {

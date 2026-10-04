@@ -1,0 +1,16 @@
+{
+  "name": "dairy-backend",
+  "version": "1.0.0",
+  "description": "Fast backend for the Ol-Chaketai Dairy order app (Google Sheets as database)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "googleapis": "^144.0.0"
+  }
+}
