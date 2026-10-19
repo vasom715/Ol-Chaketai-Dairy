@@ -83,13 +83,25 @@ async function getValues(range) {
   return res.data.values || [];
 }
 
+// Write rows directly below the last used row of the tab.
+// NOTE: do not use values.append here. Append looks for a "table" starting at
+// the given cell and inserts right after it. Column A (orderId) is blank on
+// hand-typed rows, so append saw a one-row table at the top and inserted the
+// app's orders ABOVE the history, pushing the header row down the sheet.
 async function appendValues(tab, rows) {
   const api = await sheets();
-  await api.spreadsheets.values.append({
+  // find the last non-empty row across the full width of the tab
+  const existing = await getValues(tab + '!A:K');
+  let last = 0;
+  for (let i = 0; i < existing.length; i++) {
+    const r = existing[i] || [];
+    const hasData = r.some(function (c) { return String(c || '').trim() !== ''; });
+    if (hasData) last = i + 1;
+  }
+  await api.spreadsheets.values.update({
     spreadsheetId: SHEET_ID,
-    range: tab + '!A1',
+    range: tab + '!A' + (last + 1),
     valueInputOption: 'USER_ENTERED',
-    insertDataOption: 'INSERT_ROWS',
     requestBody: { values: rows },
   });
 }
